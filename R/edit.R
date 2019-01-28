@@ -74,7 +74,7 @@ editMap.leaflet <- function(
       right = miniUI::miniTitleBarButton("done", "Done", primary = TRUE)
     ),
     tags$script(HTML(
-"
+      "
 // close browser window on session end
 $(document).on('shiny:disconnected', function() {
   // check to make sure that button was pressed
@@ -226,7 +226,20 @@ editFeatures.sf = function(
   editor = c("leaflet.extras", "leafpm"),
   ...
 ) {
-
+  if (inherits(st_geometry(x), "sfc_MULTIPOLYGON")) {
+    # add a "support column" to keep track of which polygons where splitted
+    # - use a "weird" column name: hopefully nobody will ever name a column
+    # like this. Need to initialize to NA to avoid problems if the sfc does
+    # not have any column other than "geometry" (row.names of st_cast behaves
+    # differently)
+    orig_names <- names(x)
+    x[["splt_mpdt__ndx__"]] <- NA
+    x <- sf::st_cast(x, "POLYGON")
+    x[["splt_mpdt__ndx__"]] <- round(as.numeric(row.names(x)))
+    splitted = TRUE
+  } else {
+    splitted = FALSE
+  }
   x$edit_id = as.character(1:nrow(x))
 
   if (is.null(map)) {
@@ -313,8 +326,55 @@ editFeatures.sf = function(
     init = x
   )
 
-  merged <- dplyr::select_(merged, "-edit_id")
+  browser()
+  if ("edit_id" %in% names(merged)) {
+    merged <- dplyr::select(merged, -"edit_id")
+  }
+  if ("_leaflet_id" %in% names(merged)) {
+    merged <- dplyr::select(merged, -"_leaflet_id")
+  }
+  if ("radius" %in% names(merged)) {
+    merged <- dplyr::select(merged, -"radius")
+  }
 
+
+  if (splitted) {
+    which_indna <- which(is.na(merged[["splt_mpdt__ndx__"]]))
+    if(length(which_indna != 0)) {
+      max_splitind <- max(merged$splt_mpdt__ndx__, na.rm = TRUE)
+
+      merged[which_indna, "splt_mpdt__ndx__"] <- 1 + seq(max_splitind,
+                                                         max_splitind + length(which_indna) - 1)
+    }
+    aggr_merged <- aggregate(merged, list(merged[["splt_mpdt__ndx__"]]), function(x) x[1])
+    # remove the support column
+    aggr_merged <- dplyr::select(aggr_merged, -"splt_mpdt__ndx__")
+
+    #reset the geomtry column name (can be modified by aggregate)
+    gomcol_pos <- which(names(aggr_merged) == attr(aggr_merged, "sf_column"))
+    names(aggr_merged)[gomcol_pos] <- attr(merged, "sf_column")
+    st_geometry(aggr_merged) <- attr(merged, "sf_column")
+
+    # find and remove the grouping column introduced by aggregate, then
+    # substitute current `merged` with `aggr_merged`
+    group_col <- setdiff(names(aggr_merged), names(merged))
+    merged <- dplyr::select(aggr_merged, -!!group_col)
+  }
+
+  # check to see if the result is valid with lwgeom if available and make valid
+  #   if error then return the invalid merged with a warning
+  # if(requireNamespace("lwgeom")) {
+  #   tryCatch(
+  #     {
+  #       merged <- lwgeom::st_make_valid(merged)
+  #     },
+  #     error = function(e) {
+  #       warning("unable to make valid with lwgeom; please inspect closely", call. = FALSE)
+  #     }
+  #   )
+  # } else {
+  #   message("lwgeom package not available so could not test validity")
+  # }
   # warn if anything is not valid
   if(!all(sf::st_is_valid(merged))) {
     warning("returned features do not appear valid; please inspect closely", call. = FALSE)
