@@ -353,7 +353,8 @@ editFeatures.sf = function(
     }
     # Re-aggregate the splitted geoms
     aggr_merged <- aggregate(merged, list(merged[["splt_mpdt__ndx__"]]),
-                             function(x) x[1])
+                             FUN = function(x) x[1], do_union = TRUE)
+    aggr_merged <- sf::st_cast(aggr_merged, "MULTIPOLYGON")
     # remove the splt_mpdt__ndx__ support column
     aggr_merged <- dplyr::select(aggr_merged, -"splt_mpdt__ndx__")
 
