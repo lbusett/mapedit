@@ -227,18 +227,18 @@ editFeatures.sf = function(
   ...
 ) {
   if (inherits(st_geometry(x), "sfc_MULTIPOLYGON")) {
-    # add a "support column" to keep track of which polygons where splitted
+    # Cast to "POLYGON" and add a "support column" to keep track of which polygons
+    # where splitted
     # - use a "weird" column name: hopefully nobody will ever name a column
     # like this. Need to initialize to NA to avoid problems if the sfc does
     # not have any column other than "geometry" (row.names of st_cast behaves
-    # differently)
-    orig_names <- names(x)
+    # differently in that case)
     x[["splt_mpdt__ndx__"]] <- NA
     x <- sf::st_cast(x, "POLYGON")
     x[["splt_mpdt__ndx__"]] <- round(as.numeric(row.names(x)))
-    splitted = TRUE
+    splitted <- TRUE
   } else {
-    splitted = FALSE
+    splitted <- FALSE
   }
   x$edit_id = as.character(1:nrow(x))
 
@@ -326,28 +326,35 @@ editFeatures.sf = function(
     init = x
   )
 
-  browser()
+  # remove "spurious" columns if present, so that they are not passed back
+  # in the output object
   if ("edit_id" %in% names(merged)) {
     merged <- dplyr::select(merged, -"edit_id")
   }
   if ("_leaflet_id" %in% names(merged)) {
     merged <- dplyr::select(merged, -"_leaflet_id")
   }
-  if ("radius" %in% names(merged)) {
-    merged <- dplyr::select(merged, -"radius")
-  }
+  # if ("radius" %in% names(merged)) {
+  #   merged <- dplyr::select(merged, -"radius")
+  # }
 
-
+  # If input was a MULTIPOLYGON, and therefore splitted above,
+  # rearrange the single polys as in the input, based on the
+  # accessory column "splt_mpdt__ndx__"
   if (splitted) {
+    # if some feature was added, then "splt_mpdt__ndx__" is NA
+    # In this case, create dummy values for the "new" features
     which_indna <- which(is.na(merged[["splt_mpdt__ndx__"]]))
-    if(length(which_indna != 0)) {
+    if (length(which_indna != 0)) {
       max_splitind <- max(merged$splt_mpdt__ndx__, na.rm = TRUE)
 
       merged[which_indna, "splt_mpdt__ndx__"] <- 1 + seq(max_splitind,
                                                          max_splitind + length(which_indna) - 1)
     }
-    aggr_merged <- aggregate(merged, list(merged[["splt_mpdt__ndx__"]]), function(x) x[1])
-    # remove the support column
+    # Re-aggregate the splitted geoms
+    aggr_merged <- aggregate(merged, list(merged[["splt_mpdt__ndx__"]]),
+                             function(x) x[1])
+    # remove the splt_mpdt__ndx__ support column
     aggr_merged <- dplyr::select(aggr_merged, -"splt_mpdt__ndx__")
 
     #reset the geomtry column name (can be modified by aggregate)
